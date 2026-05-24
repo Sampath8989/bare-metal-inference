@@ -96,9 +96,9 @@ make clean        # Remove binaries
 ## Roadmap
 
 - **Month 1** — C++ foundations, forward pass, binary weights ✅
-- **Month 2** — int8 quantization, latency percentiles, weight compression
-- **Month 3** — AVX2 SIMD intrinsics, loop unrolling, cache blocking
-- **Month 4** — CUDA kernel, GPU offloading
+- **Month 2** — int8 quantization, latency percentiles, weight compression,AVX2 SIMD intrinsics
+- **Month 3** — Loop unrolling, cache blocking, CUDA kernel, GPU offloading
+
 
 ## License
 
