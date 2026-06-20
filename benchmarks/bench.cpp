@@ -17,13 +17,13 @@ int main() {
         B.data[i] = static_cast<float>(i % 5);
     }
 
-    // ── Extended warm-up: force CPU to full frequency ──
+    // Extended warm-up: force CPU to full frequency
     // Run 5 times before timing anything
     for (int w = 0; w < 5; w++) {
         Tensor tmp = matmul(A, B); (void)tmp;
     }
 
-    // ── Timed runs ──
+    // Timed runs
     std::vector<long long> times;
     times.reserve(RUNS);
 
@@ -36,7 +36,7 @@ int main() {
         (void)C(0,0);
     }
 
-    // ── Stats ──
+    // Statistics
     std::sort(times.begin(), times.end());
 
     long long p50 = times[RUNS * 50 / 100];
@@ -61,7 +61,7 @@ int main() {
     std::cout << "  p99   : " << p99   << " µs\n";
     std::cout << "  Worst : " << worst << " µs\n";
     std::cout << "\nWRITE DOWN YOUR p50: " << p50 << " µs\n";
-    std::cout << "This is your Month 1 baseline.\n";
+    std::cout << "Baseline execution complete.\n";
 
     return 0;
 }

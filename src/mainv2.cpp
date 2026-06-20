@@ -21,7 +21,7 @@ int main() {
     for (int i = 0; i < input.size(); i++)
         input.data[i] = 1.0f;
 
-    // ── Warmup (200 runs, discard timing) ─────────────────────────
+    // Warmup (200 runs, discard timing)
     for (int w = 0; w < 200; w++) {
         Tensor o1 = layer1.forward(input);
         Tensor o2 = layer2.forward(o1);
@@ -29,7 +29,7 @@ int main() {
         (void)o3(0, 0);
     }
 
-    // ── Benchmark (1000 runs) ──────────────────────────────────────
+    // Benchmark (1000 runs)
     constexpr int RUNS = 1000;
     std::vector<long long> times;
     times.reserve(RUNS);
@@ -57,9 +57,9 @@ int main() {
     std::cout << "p50 : " << p50 << " us\n"
               << "p95 : " << p95 << " us\n"
               << "p99 : " << p99 << " us\n";
-    std::cout << "This was Week2 baseline.\n";
+    std::cout << "Baseline execution complete.\n";
 
-    // ── Output vs Golden ───────────────────────────────────────────
+    // Output vs Golden comparison
     std::cout << "\n=== C++ OUTPUT ===\n";
     for (int i = 0; i < final_out.cols; i++) {
         std::cout << "   cpp[" << i << "] = "

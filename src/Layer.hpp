@@ -31,9 +31,9 @@ struct Layer{
     Tensor forward(const Tensor& x, bool apply_relu=true) const{
         if(x.cols!=in_size){
             throw std::invalid_argument(
-                "Layer::forward sim mismatch: ecpected cols="
+                "Layer::forward size mismatch: expected cols="
                 +std::to_string(in_size)
-                +"got cols ="
+                +", got cols="
                 +std::to_string(x.cols)
             );
         

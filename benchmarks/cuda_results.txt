@@ -1,0 +1,18 @@
+=== GPU INT8 INFERENCE ENGINE & BENCHMARK ===
+Loading weights from: /kaggle/input/datasets/kingshiva8989/bare-metal-weights/weights_int8.bin
+
+=== CORRECTNESS VALIDATION (100 random input samples) ===
+Sample 1 GPU Output: [0, 0, 0.0332768, 0.0201659, 0.0121048, 0.0156147, 0.00591896, 0.00572703, 0, 0]
+Sample 1 CPU Output: [0, 0, 0.0332768, 0.0201659, 0.0121048, 0.0156147, 0.00591896, 0.00572703, 0, 0]
+Max absolute error over all samples:  0.000000e+00
+Mean absolute error over all samples: 0.000000e+00
+
+=== LATENCY STATISTICS (over 1000 runs) ===
+GPU Memcpy (H2D + D2H) latency:
+  p50: 22.30 us  |  p95: 29.15 us  |  p99: 41.66 us
+GPU Kernel Compute latency:
+  p50: 40.70 us  |  p95: 49.15 us  |  p99: 57.22 us
+GPU Combined (Memcpy + Compute) latency:
+  p50: 62.94 us  |  p95: 77.76 us  |  p99: 96.29 us
+CPU Int8 Reference Baseline latency:
+  p50: 8.93 us  |  p95: 8.96 us  |  p99: 13.19 us

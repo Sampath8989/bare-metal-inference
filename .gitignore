@@ -1,0 +1,30 @@
+# Compiled C++ / CUDA Executables
+engine
+engine_debug
+enginev2
+enginev2_debug
+bench_bin
+inference
+cache_exp
+alignment_demo
+float32_v1
+int8
+bench_int8
+v3_bench
+v3_simd_main
+v3_validate
+cuda_inference
+
+# Python environment and cache
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build artifacts
+*.o
+*.obj
+*.so
+*.dll
+*.exe
+*.out

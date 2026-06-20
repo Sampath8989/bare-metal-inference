@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-generate_weights.py — Month 1, Week 4
+generate_weights.py
 Generates a binary weight file (weights.bin) for the 3-layer inference engine.
 
 Binary format (per layer):
@@ -8,7 +8,8 @@ Binary format (per layer):
   [int32 bias_size][bias_size float32 bias]
 
 3-layer network: 128→64 → 64→32 → 32→10
-Weights are random float32 values. Biases are zeros.
+Weights are random float32 values from a normal distribution.
+Biases are zeros.
 This simulates a "pretrained model" for inference testing.
 
 Usage:
@@ -32,9 +33,8 @@ def main():
 
     with open("weights.bin", "wb") as f:
         for in_sz, out_sz in LAYERS:
-            # Weight matrix: in_sz × out_sz, all 0.01f (matches the hardcoded golden)
-            # Month 2 will switch to random weights once golden is regenerated.
-            weights = np.full(in_sz * out_sz, 0.01, dtype=np.float32)
+            # Generate random weights using normal distribution (non-degenerate)
+            weights = rng.normal(0.0, 0.05, in_sz * out_sz).astype(np.float32)
 
             # Bias vector: 1 × out_sz, all zeros
             bias = np.zeros(out_sz, dtype=np.float32)
