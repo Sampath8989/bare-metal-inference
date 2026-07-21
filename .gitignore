@@ -1,4 +1,11 @@
-# Compiled C++ / CUDA Executables
+bench_scaled
+bench_scaled_cuda
+cuda_shared
+cuda_batched
+cuda_pipeline
+cuda_inference
+profile_kernel
+transformer
 engine
 engine_debug
 enginev2
@@ -13,11 +20,11 @@ bench_int8
 v3_bench
 v3_simd_main
 v3_validate
-cuda_inference
 
 # Python environment and cache
 __pycache__/
 *.pyc
+.ipynb_checkpoints/
 .venv/
 venv/
 
@@ -28,3 +35,6 @@ venv/
 *.dll
 *.exe
 *.out
+
+# Data / outputs
+*.txt
