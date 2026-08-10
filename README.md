@@ -1,10 +1,11 @@
+```markdown
 # Bare-Metal Inference Engine
 
-A C++ neural network inference engine built from scratch — no frameworks, no dependencies, no libraries. Just raw matrix operations, manual memory management, int8 quantization, AVX2 SIMD acceleration, CUDA GPU kernels, and a Transformer with KV caching.
+A C++ neural network inference engine built from scratch — no frameworks, no dependencies, no libraries. Just raw matrix operations, manual memory management, int8 quantization, AVX2 SIMD acceleration, CUDA GPU kernels, FP16 Tensor Cores, and vLLM-style serving components (Continuous Batching & Paged KV Cache).
 
 **Built to understand how AI inference actually works at the systems level.**
 
-**Machine:** Intel i5-13th Gen (CPU) · NVIDIA T4 (GPU)
+**Machine:** Intel i5-13th Gen (CPU) · NVIDIA T4 (GPU)  
 **Compiler:** g++ `-O3 -march=native -mavx2` / nvcc `-O2 -arch=sm_75`
 
 ---
@@ -19,23 +20,27 @@ If you're hiring for **AI Infrastructure** or **Systems Engineering** roles, thi
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    INFERENCE PIPELINE                            │
 │                                                                 │
-│  Month 1          Month 2              Month 3                   │
-│  ────────         ────────             ────────                  │
-│  Float32     →    Int8 Quant     →     CUDA Naive                │
-│  CPU Baseline      CPU Scalar          GPU Kernel                │
-│       │                │                     │                   │
-│       ▼                ▼                     ▼                   │
-│  Forward Pass    AVX2 SIMD          Shared-Memory Tiling         │
-│  Binary I/O      SIMD Int8          Batched Throughput           │
-│       │                │             Scaled Stress Tests         │
-│       ▼                ▼                     │                   │
-│  Tensor+Layer   3-Way Benchmark            ▼                    │
-│  ReLU Activ.    Latency Histogram    Transformer + KV Cache      │
+│  Month 1          Month 2              Month 3           Month 4 │
+│  ────────         ────────             ────────          ────────│
+│  Float32     →    Int8 Quant     →     CUDA Naive    → Real Data │
+│  CPU Baseline      CPU Scalar          GPU Kernel      & WMMA     │
+│       │                │                     │             │     │
+│       ▼                ▼                     ▼             ▼     │
+│  Forward Pass    AVX2 SIMD          Shared-Memory    Fashion MNIST│
+│  Binary I/O      SIMD Int8          Tiling           Validation   │
+│       │                │             Batched Throughput  │        │
+│       ▼                ▼                     │             ▼     │
+│  Tensor+Layer   3-Way Benchmark            ▼        FP16 Tensor  │
+│  ReLU Activ.    Latency Histogram    Transformer      Cores(WMMA)│
+│                                     + KV Cache                   │
 │                                     Attention → LayerNorm → MLP  │
+│                                                                 │
+│  Month 4 (Serving): Kernel Fusion / CUDA Streams /              │
+│                     Continuous Batching / Paged KV Cache         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -43,7 +48,7 @@ If you're hiring for **AI Infrastructure** or **Systems Engineering** roles, thi
 
 ## Project Structure
 
-```
+```text
 ├── src/                            Month 1 — float32 foundations
 │   ├── tensor.hpp / tensor.cpp       Tensor struct + matmul()
 │   ├── Layer.hpp                     Fully connected layer
@@ -82,6 +87,29 @@ If you're hiring for **AI Infrastructure** or **Systems Engineering** roles, thi
 │   ├── bench_scaled.cpp               CPU scaled matmul + KV cache stress
 │   └── bench_scaled_cuda.cu           GPU naive vs shared memory at scale
 │
+├── v7_serving/                     Month 4 — Real Data Validation
+│   └── fashion_mnist/                 Standalone Fashion MNIST pipeline
+│       ├── train_fashion_mnist.py     Numpy MLP trainer & binary exporter
+│       ├── inference_fashion.cpp      C++ standalone inference engine
+│       └── run_fashion.sh             Compile & run pipeline script
+│
+├── v8_tensorcores/                 Month 4 — FP16 Tensor Cores (WMMA)
+│   ├── cuda_wmma_master.cu            Shared-memory tiled WMMA GEMM kernel
+│   └── run_master.sh                  Compile & benchmark script
+│
+├── v9_fusion_streams/              Month 4 — Kernel Fusion & Streams
+│   ├── cuda_fusion.cu                 Fused LayerNorm+MatMul+ReLU kernel
+│   ├── cuda_streams.cu                Dual-stream H2D/Compute overlap
+│   └── run_fusion.sh                  Compile & benchmark script
+│
+├── v10_continuous_batching/        Month 4 — vLLM-style Scheduler
+│   ├── continuous_batcher.cpp         Dynamic request admission scheduler
+│   └── run_batcher.sh                 Compile & run script
+│
+├── v11_paged_kv_cache/             Month 4 — vLLM-style Memory Manager
+│   ├── paged_kv_cache.cpp             PagedAttention memory pool simulator
+│   └── run_paged.sh                   Compile & run script
+│
 ├── benchmarks/
 │   ├── bench.cpp                      128×128 matmul latency
 │   ├── bench_both.cpp                 Month 2: float32 vs int8 benchmark
@@ -91,7 +119,7 @@ If you're hiring for **AI Infrastructure** or **Systems Engineering** roles, thi
 │   ├── latency_results.csv            float32 vs int8 raw data (10K samples)
 │   ├── latency_results_v3.csv         3-way scalar vs SIMD raw data
 │   ├── latency_results_shared.csv     Naive vs shared-memory CUDA
-│   ├── latency_results_pipeline.csv   Pipeline component breakdown
+│   ├── latency_results_pipeline.csv  Pipeline component breakdown
 │   ├── throughput_results.csv         Batched throughput sweep
 │   ├── scaled_results.txt             Scaled CPU raw data
 │   ├── scaled_results_gpu.txt         Scaled GPU raw data
@@ -104,7 +132,7 @@ If you're hiring for **AI Infrastructure** or **Systems Engineering** roles, thi
 │   ├── golden.py                      Golden reference output
 │   ├── quantize_weights.py            int8 quantization script
 │   ├── plot_histogram.py              Month 2 histogram plotter
-│├── plot_histogram_v3.py           Month 2 3-way histogram plotter
+│   ├── plot_histogram_v3.py           Month 2 3-way histogram plotter
 │   └── plot_final_histogram.py        Month 3 5-config aggregator
 │
 ├── weights.bin                      Pretrained weights (float32 binary)
@@ -139,6 +167,21 @@ g++ -O3 -march=native -mavx2 -std=c++17 v6_scaled/bench_scaled.cpp -o bench_scal
 
 nvcc -O2 -arch=sm_75 -std=c++17 v6_scaled/bench_scaled_cuda.cu -o bench_scaled_cuda
 ./bench_scaled_cuda
+
+# Month 4 (Fashion MNIST Validation)
+cd v7_serving/fashion_mnist && bash run_fashion.sh
+
+# Month 4 (FP16 Tensor Cores)
+cd v8_tensorcores && bash run_master.sh
+
+# Month 4 (Kernel Fusion & Streams)
+cd v9_fusion_streams && bash run_fusion.sh
+
+# Month 4 (Continuous Batching)
+cd v10_continuous_batching && bash run_batcher.sh
+
+# Month 4 (Paged KV Cache)
+cd v11_paged_kv_cache && bash run_paged.sh
 ```
 
 ---
@@ -184,7 +227,7 @@ nvcc -O2 -arch=sm_75 -std=c++17 v6_scaled/bench_scaled_cuda.cu -o bench_scaled_c
 | p95 | 1.129 µs | 2.903 µs | 2.088 µs | 1.4× |
 | p99 | 1.271 µs | 2.974 µs | 2.124 µs | 1.4× |
 
-> Note: SIMD provides no meaningful speedup at this model size (1.01×). The network is tiny (max 128×64 matmul). The overhead of loading data into SIMD registers, widening int8→int16→int32, and storing results back dominates the actual arithmetic savings.
+> **Note:** SIMD provides no meaningful speedup at this model size (1.01×). The network is tiny (max 128×64 matmul). The overhead of loading data into SIMD registers, widening int8→int16→int32, and storing results back dominates the actual arithmetic savings.
 
 ---
 
@@ -205,7 +248,7 @@ During initial testing, the KV cache implementation suffered a 47× slowdown com
 **Latency (seq_len=50, single-token generation):**
 
 | Configuration | Latency (µs) | Speedup |
-|---------------|-------------|---------|
+|---------------|--------------|---------|
 | No cache (full recomputation) | 598.984 | 1.0× |
 | With KV cache (pre-allocated, zero-alloc) | 14.384 | **41.642×** |
 
@@ -214,12 +257,12 @@ The original inner loop accessed `V_cache[p][d]` with `p` in the inner loop, cau
 
 #### 2. CUDA Shared Memory (Small Scale)
 
-| Kernel | p50 (µs) | Speedup |
-|--------|----------|---------|
+| Kernel (128×64) | p50 (µs) | Speedup |
+|-----------------|----------|---------|
 | Naive CUDA | 42.88 | 1.0× |
 | Shared Memory Tiled + `#pragma unroll` | 38.53 | 1.113× |
 
-> Note: Shared memory tiling provides minimal speedup at this model size. The matrix dimensions are too small for the tiling overhead to pay off.
+> **Note:** Shared memory tiling provides minimal speedup at this model size. The matrix dimensions are too small for the tiling overhead to pay off.
 
 #### 3. CPU vs GPU Crossover
 
@@ -270,9 +313,106 @@ Shared memory tiling underperformed at 128×64 (1.11×) due to overhead. At larg
 The KV cache scales perfectly from O(n²) to O(n), reducing 256-token generation time from 1.3 seconds to 6 milliseconds.
 
 | Configuration (256 tokens) | Total Time | Speedup |
-|---------------------------|------------|---------|
+|-----------------------------|------------|---------|
 | No Cache (Full Recomputation) | 1,334,731 µs (1.3 s) | 1.0× |
 | With KV Cache | 6,153 µs (0.0 s) | **216.9×** |
+
+---
+
+## Month 4 Progress: Serving, Tensor Cores & Memory Management
+
+| Week | Focus | Deliverable |
+|------|-------|-------------|
+| **Week 12** | Real-Data Validation | `v7_serving/` — Fashion MNIST training (Python) & bare-metal C++ inference |
+| **Week 13** | FP16 Tensor Cores (WMMA) | `v8_tensorcores/` — Shared-memory tiled WMMA GEMM kernel using `nvcuda::wmma` |
+| **Week 14** | Kernel Fusion + CUDA Streams | `v9_fusion_streams/` — Fused LN+MatMul+ReLU kernel & dual-stream pipelining |
+| **Week 15** | Continuous Batching | `v10_continuous_batching/` — vLLM-style dynamic request scheduler |
+| **Week 16** | Paged KV Cache | `v11_paged_kv_cache/` — vLLM-style dynamic memory paging simulator |
+
+### 1. Fashion MNIST Real-Data Validation
+
+To prove the engine works on real AI workloads, a 3-layer MLP (784→128→64→10) was trained in Python (Numpy) and exported to the bare-metal binary format. The C++ engine successfully classified 1,000 test images.
+
+**Performance Metrics:**
+* **Inference Time (1000 images):** 72.72 ms
+* **Throughput:** 13,751.8 images/sec
+* **Overall Accuracy:** **86.7%**
+
+**Sample Predictions:**
+
+| Img# | Predicted | Actual | Correct | Confidence |
+|------|-----------|--------|---------|------------|
+| 1 | Ankle boot | Ankle boot | ✓ | 79.8% |
+| 2 | Pullover | Pullover | ✓ | 95.1% |
+| 3 | Trouser | Trouser | ✓ | 100.0% |
+| 4 | Trouser | Trouser | ✓ | 99.9% |
+| 5 | Shirt | Shirt | ✓ | 82.6% |
+
+### 2. FP16 Tensor Core Scaling (WMMA)
+
+Implemented a shared-memory tiled GEMM kernel using the `nvcuda::wmma` API to directly access the T4 GPU's physical Tensor Cores. This bypasses standard CUDA cores and executes 16×16×16 matrix multiplies in a single hardware clock cycle.
+
+**Latency & TFLOPS (1024×1024 Matmul):**
+
+| Kernel | p50 (µs) | TFLOPS | Hardware Utilization |
+|--------|----------|--------|----------------------|
+| Naive FP32 (CUDA Cores) | 4,267.2 | 0.50 | 6.2% of FP32 peak |
+| WMMA Naive (Tensor Cores) | 630.8 | 3.40 | 5.2% of FP16 TC peak |
+| WMMA Shared (Tensor Cores) | 285.9 | **7.51** | 11.6% of FP16 TC peak |
+
+> **Analysis:** By utilizing FP16 Tensor Cores via WMMA fragments, the kernel achieves a **14.9× speedup** over standard FP32 CUDA cores. The kernel uses 16×16×16 tiles and shared memory padding to avoid bank conflicts while feeding the Tensor Cores. Correctness was verified with `compute-sanitizer` (zero memory errors, max error < 0.004).
+
+### 3. Kernel Fusion & CUDA Streams (T4 GPU)
+
+In production inference, memory bandwidth (DRAM round-trips) is the #1 bottleneck, not raw compute. This week demonstrates fusing LayerNorm + MatMul + ReLU into a single kernel to eliminate intermediate global memory writes, and using CUDA Streams to overlap PCIe data transfers with compute.
+
+**Kernel Fusion (M=65536, K=64, N=64):**
+
+| Pipeline | p50 (µs) | DRAM Traffic | Speedup |
+|----------|----------|--------------|---------|
+| Separate (3 kernels) | 1,199.4 | 83.9 MB | 1.0× |
+| Fused (1 kernel) | 409.6 | 33.6 MB | **2.93×** |
+
+> **Analysis:** The fused kernel reduces DRAM traffic by 60%. The LayerNorm output is kept in shared memory, the GEMM output stays in registers, and ReLU is folded into the store epilogue. Two full global memory round-trips are saved.
+
+**CUDA Streams (6 batches of 1024×1024):**
+
+| Execution Mode | p50 (µs) | Speedup |
+|----------------|----------|---------|
+| Sequential (1 stream) | 13,214.1 | 1.0× |
+| Overlapped (2 streams) | 9,520.8 | **1.39×** |
+
+> **Analysis:** By using 2 CUDA streams, H2D transfers for Batch N+1 are overlapped with kernel compute for Batch N. This keeps the GPU compute units and copy engines fully saturated, yielding a 1.39× pipeline speedup.
+
+### 4. Continuous Batching (vLLM-style Scheduler)
+
+Static batching waits for a fixed batch to finish before starting the next one, leaving the GPU idle while waiting for the slowest request. Continuous batching dynamically back-fills decode slots as soon as individual requests finish, maximizing GPU utilization.
+
+**Simulated Workload (1000 requests, max batch=32, Poisson arrivals):**
+
+| Metric | Static Batching | Continuous Batching | Improvement |
+|--------|-----------------|---------------------|-------------|
+| Total time (1000 reqs) | 328.97 ms | 187.68 ms | **1.75×** |
+| Avg latency / request | 111.59 ms | 42.38 ms | **2.63×** |
+| p95 latency | 205.39 ms | 75.11 ms | 2.73× |
+| Avg GPU utilization | 34.4% | 60.3% | 1.75× |
+
+> **Analysis:** By dynamically admitting requests from the waiting queue into the active batch, continuous batching increases average GPU utilization from 34.4% to 60.3%. This reduces per-request latency by 2.63× and overall throughput time by 1.75×, proving the system-level benefits of dynamic scheduling over static batching.
+
+### 5. Paged KV Cache (vLLM-style Memory Manager)
+
+Pre-allocating a fixed max sequence length (e.g., 256 tokens) for every request wastes massive amounts of memory when requests generate shorter sequences. This simulator implements a Paged KV Cache (inspired by vLLM's PagedAttention), allocating memory in fixed-size 16-token pages on demand and freeing them instantly when a request finishes.
+
+**Simulation (8 MB pool, 2000 requests, lengths uniform [20, 180]):**
+
+| Metric | Pre-allocated | Paged | Improvement |
+|--------|---------------|-------|-------------|
+| Requests served | 64 of 2000 | 2000 of 2000 | 31.2× more |
+| Max concurrent requests | 64 | 184 | 2.9× more |
+| Memory wasted | 9568 slots (58.4%) | 1340 slots (10.7%) | 7.1× less |
+| Memory utilization | 41.6% | 89.3% | 2.1× |
+
+> **Analysis:** By mapping logical request sequences to physical pages via a page table, the engine eliminates external fragmentation. Memory utilization rises to 89.3%, allowing the same 8 MB footprint to serve 31× more requests. The only remaining waste is internal fragmentation (partially filled last pages).
 
 ---
 
@@ -281,9 +421,11 @@ The KV cache scales perfectly from O(n²) to O(n), reducing 256-token generation
 - [x] **Month 1** — C++ foundations, forward pass, binary weights
 - [x] **Month 2** — int8 quantization, AVX2 SIMD, CUDA GPU kernel
 - [x] **Month 3** — Shared-memory tiling, batched throughput, Transformer + KV cache, scaling validation
+- [x] **Month 4** — Real-data validation, FP16 Tensor Cores, Kernel Fusion, Continuous Batching, Paged KV Cache
 
 ---
 
 ## License
 
 MIT
+```
