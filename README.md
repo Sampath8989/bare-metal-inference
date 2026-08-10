@@ -1,4 +1,3 @@
-```markdown
 # Bare-Metal Inference Engine
 
 A C++ neural network inference engine built from scratch — no frameworks, no dependencies, no libraries. Just raw matrix operations, manual memory management, int8 quantization, AVX2 SIMD acceleration, CUDA GPU kernels, FP16 Tensor Cores, and vLLM-style serving components (Continuous Batching & Paged KV Cache).
@@ -428,4 +427,3 @@ Pre-allocating a fixed max sequence length (e.g., 256 tokens) for every request 
 ## License
 
 MIT
-```
