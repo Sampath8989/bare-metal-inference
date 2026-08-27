@@ -13,7 +13,7 @@ A C++ neural network inference engine built from scratch — no frameworks, no d
 
 Low-latency inference is the backbone of modern AI systems — from real-time trading signals (HFT) to large language model serving. This project builds every layer of the inference stack from raw C++, exposing the tradeoffs between precision, quantization, SIMD vectorization, GPU acceleration, and autoregressive generation.
 
-If you're hiring for **AI Infrastructure** or **Systems Engineering** roles, this codebase demonstrates that I don't just *use* frameworks — I understand the hardware constraints inside them.
+The project focuses on understanding inference at the hardware and systems level, including memory access, quantization, SIMD, GPU kernels, Tensor Cores, kernel fusion, batching, and KV-cache management.
 
 ---
 
@@ -359,7 +359,7 @@ The KV cache scales perfectly from O(n²) to O(n), reducing 256-token generation
 | Configuration (256 tokens) | Total Time | Speedup |
 |-----------------------------|------------|---------|
 | No Cache (Full Recomputation) | 1,334,731 µs (1.3 s) | 1.0× |
-| With KV Cache | 6,153 µs (0.0 s) | **216.9×** |
+| With KV Cache | **6.153 ms** | **216.9×** |
 
 ---
 
@@ -394,7 +394,7 @@ To prove the engine works on real AI workloads, a 3-layer MLP (784→128→64→
 
 ### 2. FP16 Tensor Core Scaling (WMMA)
 
-Implemented a shared-memory tiled GEMM kernel using the `nvcuda::wmma` API to directly access the T4 GPU's physical Tensor Cores. This bypasses standard CUDA cores and executes 16×16×16 matrix multiplies in a single hardware clock cycle.
+Implemented a shared-memory tiled GEMM kernel using the `nvcuda::wmma` API to directly access the T4 GPU's physical Tensor Cores. This uses NVIDIA Tensor Core matrix-multiply instructions through the WMMA API, operating on 16×16×16 matrix fragments.
 
 **Latency & TFLOPS (1024×1024 Matmul):**
 
@@ -513,7 +513,9 @@ Where Month 4 introduced each GPU optimization technique individually (WMMA in `
 | 1024 × 1024 | 4595 µs | 288 µs | 15.91× |
 | 2048 × 2048 | 43073 µs | 3678 µs | 11.71× |
 
-> **Analysis:** No single optimization dominates across all sizes — WMMA Tensor Cores alone deliver the largest individual gain (up to 9.63×), while FP16-only and Kernel-Fusion-only kernels barely move the needle at small sizes because they're not compute-bound there. The peak speedup is at **512×512 (20.06×)**, where compute is large enough to amortize kernel-launch/tiling overhead but still small enough to stay cache/shared-memory friendly; beyond that, the Combined kernel's relative advantage tapers (15.9× at 1024², 11.7× at 2048²) as the workload becomes bandwidth-bound again. FP16-only kernels show a growing numerical error at scale (up to 3.2e-01 at 2048×2048) due to accumulation in half precision, whereas WMMA (accumulating in FP32 despite FP16 inputs) and Combined stay within ~5e-03 — the accuracy-preserving path to the same speed.
+Analysis: The results show that no single optimization is best at every matrix size. WMMA provides the strongest standalone improvement, reaching 9.63× at 512×512. The combined kernel performs best overall, reaching a peak of 20.06× at 512×512. At this size, the workload is large enough for the GPU optimizations to pay off while avoiding some of the overhead that limits the smaller cases. At larger sizes, the combined speedup decreases to 15.9× at 1024×1024 and 11.7× at 2048×2048, but it still remains substantially faster than the FP32 baseline.
+
+The results also show an important precision tradeoff. The FP16-only kernel accumulates significantly more numerical error as matrix size increases, reaching 3.2e-01 at 2048×2048. WMMA and the Combined kernel keep the error below approximately 5e-03 while still providing large speedups. This makes the combined approach a better balance between performance and numerical accuracy.
 
 ---
 
