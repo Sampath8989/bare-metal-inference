@@ -4,7 +4,7 @@ A C++ neural network inference engine built from scratch — no frameworks, no d
 
 **Built to understand how AI inference actually works at the systems level.**
 
-**Machine:** Intel i5-13th Gen (CPU) · NVIDIA T4 (GPU)  
+**Machine:** Intel i5-13th Gen (CPU) · NVIDIA T4 (GPU)
 **Compiler:** g++ `-O3 -march=native -mavx2` / nvcc `-O2 -arch=sm_75`
 
 ---
@@ -20,27 +20,28 @@ If you're hiring for **AI Infrastructure** or **Systems Engineering** roles, thi
 ## Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│                    INFERENCE PIPELINE                            │
-│                                                                 │
-│  Month 1          Month 2              Month 3           Month 4 │
-│  ────────         ────────             ────────          ────────│
-│  Float32     →    Int8 Quant     →     CUDA Naive    → Real Data │
-│  CPU Baseline      CPU Scalar          GPU Kernel      & WMMA     │
-│       │                │                     │             │     │
-│       ▼                ▼                     ▼             ▼     │
-│  Forward Pass    AVX2 SIMD          Shared-Memory    Fashion MNIST│
-│  Binary I/O      SIMD Int8          Tiling           Validation   │
-│       │                │             Batched Throughput  │        │
-│       ▼                ▼                     │             ▼     │
-│  Tensor+Layer   3-Way Benchmark            ▼        FP16 Tensor  │
-│  ReLU Activ.    Latency Histogram    Transformer      Cores(WMMA)│
-│                                     + KV Cache                   │
-│                                     Attention → LayerNorm → MLP  │
-│                                                                 │
-│  Month 4 (Serving): Kernel Fusion / CUDA Streams /              │
-│                     Continuous Batching / Paged KV Cache         │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          INFERENCE PIPELINE                                 │
+│                                                                             │
+│  Month 1          Month 2              Month 3           Month 4          Month 5│
+│  ────────         ────────             ────────          ────────         ────────│
+│  Float32     →    Int8 Quant     →     CUDA Naive    → Real Data     →  Combined  │
+│  CPU Baseline      CPU Scalar          GPU Kernel      & WMMA          GPU Kernel  │
+│       │                │                     │             │               │      │
+│       ▼                ▼                     ▼             ▼               ▼      │
+│  Forward Pass    AVX2 SIMD          Shared-Memory    Fashion MNIST   FP16+Smem+   │
+│  Binary I/O      SIMD Int8          Tiling           Validation      WMMA+Fusion  │
+│       │                │             Batched Throughput  │               │        │
+│       ▼                ▼                     │             ▼               ▼      │
+│  Tensor+Layer   3-Way Benchmark            ▼        FP16 Tensor    128²→2048²    │
+│  ReLU Activ.    Latency Histogram    Transformer      Cores(WMMA)   Scaling Sweep │
+│                                     + KV Cache                                    │
+│                                     Attention → LayerNorm → MLP                   │
+│                                     (+ Scaled 512²/1024² Stress Tests)            │
+│                                                                             │
+│  Month 4 (Serving): Kernel Fusion / CUDA Streams /                        │
+│                     Continuous Batching / Paged KV Cache                   │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -80,34 +81,74 @@ If you're hiring for **AI Infrastructure** or **Systems Engineering** roles, thi
 │   ├── attention.hpp                  Self-attention (Q/K/V projections)
 │   ├── transformer_block.hpp          Attention + LayerNorm + MLP
 │   ├── kv_cache.hpp                   KV cache for autoregressive generation
-│   └── main_transformer.cpp           Full Transformer benchmark driver
+│   ├── main_transformer.cpp           Full Transformer benchmark driver
+│   └── results.txt                    Empirical results (51.2× speedup at seq_len=50)
 │
-├── v6_scaled/                      Month 3 — Scaled Stress Tests
-│   ├── bench_scaled.cpp               CPU scaled matmul + KV cache stress
-│   └── bench_scaled_cuda.cu           GPU naive vs shared memory at scale
+├── v6_scaled/                      Month 3 — Scaled Stress Tests (512×512 & 1024×1024)
+│   ├── Makefile                       Build targets (make v6_scaled_512, make v6_scaled_1024)
+│   ├── README.md                      Scaled architecture overview and current results
+│   ├── bench_scaled.cpp               Scaled CPU matrix & KV cache stress test
+│   ├── bench_scaled_cuda.cu           Scaled GPU naive vs shared memory stress test
+│   ├── main_cpu.cpp                   Unified scaled CPU test runner
+│   ├── main_gpu.cu                    Unified scaled GPU test runner
+│   ├── cpu.txt                        CPU scaled benchmark logs
+│   ├── gpu.txt                        GPU & scaled benchmark logs
+│   │
+│   ├── v1_float32/                    Float32 baseline at scale
+│   │   ├── Layer.hpp / relu.hpp / tensor.hpp / tensor.cpp
+│   │   └── main.cpp
+│   ├── v2_int8/                       Int8 quantized inference at scale
+│   │   └── main.cpp
+│   ├── v3_simd/                       AVX2 256-bit SIMD vectorization at scale
+│   │   ├── common.hpp / int8_simd.hpp
+│   │   └── main.cpp
+│   ├── v4_cuda/                       CUDA GPU engines (naive, shared, batched, pipelined)
+│   │   ├── cuda_inference.cu            Naive CUDA kernel
+│   │   ├── cuda_shared.cu               16×16 shared-memory tiled GEMM
+│   │   ├── cuda_batched.cu              Batched GPU sweep
+│   │   └── cuda_pipeline.cu             Asynchronous Host-to-Device overlap
+│   └── v5_transformer/                Transformer block & KV cache at scale (d_model=512/1024)
+│       ├── Layer.hpp / relu.hpp / tensor.hpp / tensor.cpp
+│       ├── attention.hpp / kv_cache.hpp / transformer_block.hpp
+│       └── main_transformer.cpp
 │
-├── v7_serving/                     Month 4 — Real Data Validation
+├── v7_serving/                      Month 4 — Real Data Validation
 │   └── fashion_mnist/                 Standalone Fashion MNIST pipeline
 │       ├── train_fashion_mnist.py     Numpy MLP trainer & binary exporter
 │       ├── inference_fashion.cpp      C++ standalone inference engine
 │       └── run_fashion.sh             Compile & run pipeline script
 │
-├── v8_tensorcores/                 Month 4 — FP16 Tensor Cores (WMMA)
+├── v8_tensorcores/                  Month 4 — FP16 Tensor Cores (WMMA)
 │   ├── cuda_wmma_master.cu            Shared-memory tiled WMMA GEMM kernel
 │   └── run_master.sh                  Compile & benchmark script
 │
-├── v9_fusion_streams/              Month 4 — Kernel Fusion & Streams
+├── v9_fusion_streams/               Month 4 — Kernel Fusion & Streams
 │   ├── cuda_fusion.cu                 Fused LayerNorm+MatMul+ReLU kernel
 │   ├── cuda_streams.cu                Dual-stream H2D/Compute overlap
 │   └── run_fusion.sh                  Compile & benchmark script
 │
-├── v10_continuous_batching/        Month 4 — vLLM-style Scheduler
+├── v10_continuous_batching/         Month 4 — vLLM-style Scheduler
 │   ├── continuous_batcher.cpp         Dynamic request admission scheduler
 │   └── run_batcher.sh                 Compile & run script
 │
-├── v11_paged_kv_cache/             Month 4 — vLLM-style Memory Manager
+├── v11_paged_kv_cache/              Month 4 — vLLM-style Memory Manager
 │   ├── paged_kv_cache.cpp             PagedAttention memory pool simulator
 │   └── run_paged.sh                   Compile & run script
+│
+├── v12_combined/                    Month 5 — Final Combined GPU Optimization Suite
+│   ├── baseline.cu                    1. Baseline: Naive FP32 CUDA kernel
+│   ├── fp16.cu                        2. FP16: Native half-precision arithmetic kernel
+│   ├── shared_memory.cu               3. Shared Memory: 16×16 2D tiled FP32 kernel
+│   ├── wmma.cu                        4. WMMA: 16×16×16 hardware Tensor Core fragment kernel
+│   ├── kernel_fusion.cu               5. Kernel Fusion: Fused GEMM + ReLU activation epilogue
+│   ├── combined.cu                    6. Final Combined: Integrated FP16 + 64×64 Smem + WMMA + Fusion
+│   ├── main.cu                        Master benchmark runner (p50/p95/p99, speedup, max_error)
+│   ├── plot_results.py                Dynamic chart generator (reads gpu_results.csv)
+│   ├── run_combined.sh                All-in-one execution script for Google Colab (Tesla T4)
+│   ├── run_colab.sh                   Colab automation script
+│   ├── README.md                      Instructions, commands, and architecture details
+│   ├── gpu_results.csv                Machine-readable output data
+│   └── gpu_results.txt                Formatted human-readable summary table
 │
 ├── benchmarks/
 │   ├── bench.cpp                      128×128 matmul latency
@@ -161,11 +202,9 @@ nvcc -O2 -arch=sm_75 -o cuda_shared v4_cuda/cuda_shared.cu
 ./cuda_shared v2_int8/weights_int8.bin
 
 # Month 3 (Scaled Stress Tests)
-g++ -O3 -march=native -mavx2 -std=c++17 v6_scaled/bench_scaled.cpp -o bench_scaled
-./bench_scaled
-
-nvcc -O2 -arch=sm_75 -std=c++17 v6_scaled/bench_scaled_cuda.cu -o bench_scaled_cuda
-./bench_scaled_cuda
+cd v6_scaled
+make v6_scaled_512     # Runs full CPU + GPU suite at 512×512
+make v6_scaled_1024    # Runs full CPU + GPU suite at 1024×1024
 
 # Month 4 (Fashion MNIST Validation)
 cd v7_serving/fashion_mnist && bash run_fashion.sh
@@ -181,6 +220,12 @@ cd v10_continuous_batching && bash run_batcher.sh
 
 # Month 4 (Paged KV Cache)
 cd v11_paged_kv_cache && bash run_paged.sh
+
+# Month 5 (Final Combined GPU Optimization Suite)
+cd v12_combined
+bash run_combined.sh      # Full benchmark sweep (128×128 → 2048×2048), or:
+bash run_colab.sh         # Automated run on Google Colab (Tesla T4)
+python plot_results.py    # Generates charts from gpu_results.csv
 ```
 
 ---
@@ -415,12 +460,70 @@ Pre-allocating a fixed max sequence length (e.g., 256 tokens) for every request 
 
 ---
 
+## Month 5 Progress: Final Combined GPU Optimization Suite
+
+| Week | Focus | Deliverable |
+|------|-------|-------------|
+| **Week 17** | Full-Stack GPU Optimization Sweep | `v12_combined/` — Isolated FP16, Shared Memory, WMMA Tensor Core, and Kernel Fusion kernels, plus one integrated "Combined" kernel, benchmarked from 128×128 to 2048×2048 on the Tesla T4 |
+
+Where Month 4 introduced each GPU optimization technique individually (WMMA in `v8_tensorcores/`, fusion in `v9_fusion_streams/`), Month 5 puts all of them **head-to-head against each other and against a single fused kernel** that combines FP16 + 64×64 shared-memory tiling + WMMA Tensor Cores + kernel fusion, across a full matrix-size sweep.
+
+### GPU Optimization Benchmark Results — Tesla T4
+
+| Size | Optimization | p50 (µs) | p95 (µs) | p99 (µs) | Speedup | Max Error |
+|------|---------------|----------|----------|----------|---------|-----------|
+| 128×128 | Baseline | 25.25 | 26.59 | 38.94 | 1.00× | 7.153e-07 |
+| 128×128 | FP16 | 24.96 | 26.18 | 27.78 | 1.01× | 1.539e-02 |
+| 128×128 | Shared Memory | 20.77 | 22.02 | 23.49 | 1.21× | 7.153e-07 |
+| 128×128 | WMMA Tensor Cores | 10.40 | 11.58 | 18.43 | 2.42× | 1.042e-03 |
+| 128×128 | Kernel Fusion | 25.34 | 26.62 | 28.06 | 0.99× | 7.153e-07 |
+| 128×128 | **Combined** | **22.53** | 23.68 | 26.62 | **1.12×** | 1.042e-03 |
+| 256×256 | Baseline | 133.12 | 138.37 | 144.13 | 1.00× | 1.669e-06 |
+| 256×256 | FP16 | 130.40 | 131.49 | 137.82 | 1.02× | 2.718e-02 |
+| 256×256 | Shared Memory | 91.23 | 92.19 | 104.48 | 1.45× | 1.669e-06 |
+| 256×256 | WMMA Tensor Cores | 27.71 | 28.67 | 32.67 | 4.80× | 1.581e-03 |
+| 256×256 | Kernel Fusion | 132.61 | 134.40 | 138.62 | 1.00× | 1.669e-06 |
+| 256×256 | **Combined** | **38.50** | 39.07 | 49.15 | **3.45×** | 1.581e-03 |
+| 512×512 | Baseline | 942.21 | 947.42 | 953.41 | 1.00× | 2.861e-06 |
+| 512×512 | FP16 | 505.28 | 514.98 | 529.09 | 1.86× | 7.544e-02 |
+| 512×512 | Shared Memory | 334.56 | 339.97 | 343.46 | 2.81× | 2.861e-06 |
+| 512×512 | WMMA Tensor Cores | 97.82 | 99.46 | 107.26 | 9.63× | 2.314e-03 |
+| 512×512 | Kernel Fusion | 509.86 | 511.62 | 518.14 | 1.84× | 2.861e-06 |
+| 512×512 | **Combined** | **46.98** | 47.49 | 52.67 | **20.0×** | 2.201e-03 |
+| 1024×1024 | Baseline | 4595.07 | 4641.25 | 4800.19 | 1.00× | 4.768e-06 |
+| 1024×1024 | FP16 | 3809.41 | 3853.02 | 3870.02 | 1.20× | 1.258e-01 |
+| 1024×1024 | Shared Memory | 2830.37 | 2920.61 | 2951.84 | 1.62× | 4.768e-06 |
+| 1024×1024 | WMMA Tensor Cores | 653.31 | 747.55 | 756.48 | 7.03× | 3.463e-03 |
+| 1024×1024 | Kernel Fusion | 4593.92 | 4681.73 | 4801.38 | 1.00× | 4.768e-06 |
+| 1024×1024 | **Combined** | **288.77** | 323.26 | 325.73 | **15.9×** | 3.205e-03 |
+| 2048×2048 | Baseline | 43073.79 | 43608.06 | 43953.98 | 1.00× | 8.583e-06 |
+| 2048×2048 | FP16 | 38264.89 | 39043.62 | 39271.17 | 1.12× | 3.227e-01 |
+| 2048×2048 | Shared Memory | 28790.72 | 28800.13 | 30068.58 | 1.49× | 8.583e-06 |
+| 2048×2048 | WMMA Tensor Cores | 9399.14 | 9594.88 | 9768.26 | 4.58× | 4.974e-03 |
+| 2048×2048 | Kernel Fusion | 44743.58 | 45082.66 | 45179.11 | 0.96× | 7.629e-06 |
+| 2048×2048 | **Combined** | **3678.88** | 3833.92 | 3840.42 | **11.7×** | 4.974e-03 |
+
+### Final Summary: Baseline vs Combined
+
+| Matrix Size | Baseline FP32 | Final Combined | Speedup |
+|-------------|---------------|-----------------|---------|
+| 128 × 128 | 25 µs | 22 µs | 1.12× |
+| 256 × 256 | 133 µs | 38 µs | 3.46× |
+| 512 × 512 | 942 µs | 46 µs | **20.06×** |
+| 1024 × 1024 | 4595 µs | 288 µs | 15.91× |
+| 2048 × 2048 | 43073 µs | 3678 µs | 11.71× |
+
+> **Analysis:** No single optimization dominates across all sizes — WMMA Tensor Cores alone deliver the largest individual gain (up to 9.63×), while FP16-only and Kernel-Fusion-only kernels barely move the needle at small sizes because they're not compute-bound there. The peak speedup is at **512×512 (20.06×)**, where compute is large enough to amortize kernel-launch/tiling overhead but still small enough to stay cache/shared-memory friendly; beyond that, the Combined kernel's relative advantage tapers (15.9× at 1024², 11.7× at 2048²) as the workload becomes bandwidth-bound again. FP16-only kernels show a growing numerical error at scale (up to 3.2e-01 at 2048×2048) due to accumulation in half precision, whereas WMMA (accumulating in FP32 despite FP16 inputs) and Combined stay within ~5e-03 — the accuracy-preserving path to the same speed.
+
+---
+
 ## Roadmap
 
 - [x] **Month 1** — C++ foundations, forward pass, binary weights
 - [x] **Month 2** — int8 quantization, AVX2 SIMD, CUDA GPU kernel
 - [x] **Month 3** — Shared-memory tiling, batched throughput, Transformer + KV cache, scaling validation
 - [x] **Month 4** — Real-data validation, FP16 Tensor Cores, Kernel Fusion, Continuous Batching, Paged KV Cache
+- [x] **Month 5** — Final combined GPU optimization suite (FP16 + Shared Memory + WMMA + Fusion), full 128×128 → 2048×2048 scaling sweep
 
 ---
 
