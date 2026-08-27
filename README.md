@@ -21,26 +21,35 @@ The project focuses on understanding inference at the hardware and systems level
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          INFERENCE PIPELINE                                 │
+│                         INFERENCE PIPELINE                                  │
 │                                                                             │
-│  Month 1          Month 2              Month 3           Month 4          Month 5│
-│  ────────         ────────             ────────          ────────         ────────│
-│  Float32     →    Int8 Quant     →     CUDA Naive    → Real Data     →  Combined  │
-│  CPU Baseline      CPU Scalar          GPU Kernel      & WMMA          GPU Kernel  │
-│       │                │                     │             │               │      │
-│       ▼                ▼                     ▼             ▼               ▼      │
-│  Forward Pass    AVX2 SIMD          Shared-Memory    Fashion MNIST   FP16+Smem+   │
-│  Binary I/O      SIMD Int8          Tiling           Validation      WMMA+Fusion  │
-│       │                │             Batched Throughput  │               │        │
-│       ▼                ▼                     │             ▼               ▼      │
-│  Tensor+Layer   3-Way Benchmark            ▼        FP16 Tensor    128²→2048²    │
-│  ReLU Activ.    Latency Histogram    Transformer      Cores(WMMA)   Scaling Sweep │
-│                                     + KV Cache                                    │
-│                                     Attention → LayerNorm → MLP                   │
-│                                     (+ Scaled 512²/1024² Stress Tests)            │
+│  Float32 → Int8 Quant → AVX2 SIMD → CUDA Kernels                           │
+│      │          │            │              │                              │
+│      ▼          ▼            ▼              ▼                              │
+│  CPU Baseline  Quantized   Vectorized    Naive / Shared / Batched GPU      │
+│  Forward Pass  Inference   MatMul        Kernels                            │
 │                                                                             │
-│  Month 4 (Serving): Kernel Fusion / CUDA Streams /                        │
-│                     Continuous Batching / Paged KV Cache                   │
+│                         ↓                                                   │
+│                                                                             │
+│              Transformer + KV Cache → Scaling Validation                   │
+│                         │                       │                           │
+│                         ▼                       ▼                           │
+│                 Attention / MLP          512² / 1024² Stress Tests         │
+│                                                                             │
+│                         ↓                                                   │
+│                                                                             │
+│        Tensor Cores + Kernel Fusion + CUDA Streams                         │
+│                         │                                                   │
+│                         ▼                                                   │
+│              Continuous Batching + Paged KV Cache                          │
+│                         │                                                   │
+│                         ▼                                                   │
+│                Combined GPU Optimization                                  │
+│              FP16 + Shared Memory + WMMA + Fusion                          │
+│                         │                                                   │
+│                         ▼                                                   │
+│                    128² → 2048²                                            │
+│                    Scaling Sweep                                            │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -175,7 +184,7 @@ The project focuses on understanding inference at the hardware and systems level
 │   ├── plot_histogram_v3.py           Month 2 3-way histogram plotter
 │   └── plot_final_histogram.py        Month 3 5-config aggregator
 │
-├── weights.bin                      Pretrained weights (float32 binary)
+├── weights.bin                      Float32 model weights
 └── Makefile
 ```
 
@@ -354,7 +363,7 @@ Shared memory tiling underperformed at 128×64 (1.11×) due to overhead. At larg
 
 #### 6. Scaling Validation: Transformer KV Cache (seq_len=256)
 
-The KV cache scales perfectly from O(n²) to O(n), reducing 256-token generation time from 1.3 seconds to 6 milliseconds.
+The KV cache changes the dominant generation cost from repeated O(n²) recomputation to approximately O(n) growth with sequence length, reducing 256-token generation time from 1.3 seconds to 6 milliseconds.
 
 | Configuration (256 tokens) | Total Time | Speedup |
 |-----------------------------|------------|---------|
@@ -408,7 +417,7 @@ Implemented a shared-memory tiled GEMM kernel using the `nvcuda::wmma` API to di
 
 ### 3. Kernel Fusion & CUDA Streams (T4 GPU)
 
-In production inference, memory bandwidth (DRAM round-trips) is the #1 bottleneck, not raw compute. This week demonstrates fusing LayerNorm + MatMul + ReLU into a single kernel to eliminate intermediate global memory writes, and using CUDA Streams to overlap PCIe data transfers with compute.
+For this workload, reducing global-memory traffic is an important optimization opportunity. This week demonstrates fusing LayerNorm + MatMul + ReLU into a single kernel to eliminate intermediate global memory writes, and using CUDA Streams to overlap PCIe data transfers with compute.
 
 **Kernel Fusion (M=65536, K=64, N=64):**
 
@@ -513,9 +522,9 @@ Where Month 4 introduced each GPU optimization technique individually (WMMA in `
 | 1024 × 1024 | 4595 µs | 288 µs | 15.91× |
 | 2048 × 2048 | 43073 µs | 3678 µs | 11.71× |
 
-Analysis: The results show that no single optimization is best at every matrix size. WMMA provides the strongest standalone improvement, reaching 9.63× at 512×512. The combined kernel performs best overall, reaching a peak of 20.06× at 512×512. At this size, the workload is large enough for the GPU optimizations to pay off while avoiding some of the overhead that limits the smaller cases. At larger sizes, the combined speedup decreases to 15.9× at 1024×1024 and 11.7× at 2048×2048, but it still remains substantially faster than the FP32 baseline.
-
-The results also show an important precision tradeoff. The FP16-only kernel accumulates significantly more numerical error as matrix size increases, reaching 3.2e-01 at 2048×2048. WMMA and the Combined kernel keep the error below approximately 5e-03 while still providing large speedups. This makes the combined approach a better balance between performance and numerical accuracy.
+> **Analysis:** The results show that no single optimization is best at every matrix size. WMMA provides the strongest standalone improvement, reaching **9.63×** at 512×512. The combined kernel performs best overall, reaching a peak of **20.06×** at 512×512. At this size, the workload is large enough for the GPU optimizations to pay off while avoiding some of the overhead that limits the smaller cases. At larger sizes, the combined speedup decreases to **15.9× at 1024×1024** and **11.7× at 2048×2048**, but it still remains substantially faster than the FP32 baseline.
+>
+> The results also show an important precision tradeoff. The FP16-only kernel accumulates significantly more numerical error as matrix size increases, reaching **3.2e-01** at 2048×2048. WMMA and the Combined kernel keep the error below approximately **5e-03** while still providing large speedups. This makes the combined approach a better balance between performance and numerical accuracy.
 
 ---
 
